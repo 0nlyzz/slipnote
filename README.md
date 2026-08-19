@@ -29,7 +29,11 @@ Both halves are pull, not push — neither side gets interrupted, both find out 
 npm install slipnote
 ```
 
-(Not yet published — clone this folder and `require('./index')` for now.)
+(Not yet published to npm — clone the repo and `require('./index')` for now.)
+
+```bash
+git clone https://github.com/0nlyzz/slipnote.git
+```
 
 ## Usage
 
