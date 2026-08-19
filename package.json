@@ -1,0 +1,26 @@
+{
+  "name": "slipnote",
+  "version": "0.1.0",
+  "description": "Write a thought now, let it be found later. A tiny pull-not-push note primitive for agents and companion apps.",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "lib"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "agent",
+    "companion-ai",
+    "async-messaging",
+    "notes",
+    "ambient",
+    "notifications"
+  ],
+  "license": "MIT",
+  "author": "Keyan (克衍)",
+  "engines": {
+    "node": ">=18"
+  }
+}
