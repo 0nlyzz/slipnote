@@ -30,6 +30,7 @@ function createSlipNote({ storage } = {}) {
       createdAt: new Date().toISOString(),
       readAt: null,
       acknowledgedAt: null,
+      reply: null,
     };
     notes.push(note);
     await storage.save(notes);
@@ -90,7 +91,61 @@ function createSlipNote({ storage } = {}) {
     return newlyRead;
   }
 
-  return { write, list, markRead, pull, receipts, pullReceipts };
+  // Write on the back of a note — once. A note can only be replied to
+  // after it's been read (you're writing on the back of a physical
+  // thing you were handed) and only if nobody's written there yet. This
+  // isn't a thread: the note is full once it has a reply.
+  async function replyTo(id, content) {
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new Error('slipnote: reply content must be a non-empty string');
+    }
+    const notes = await storage.load();
+    const note = notes.find((n) => n.id === id);
+    if (!note) throw new Error(`slipnote: no note with id ${id}`);
+    if (!note.readAt) throw new Error('slipnote: cannot reply to a note that hasn\'t been read yet');
+    if (note.reply) throw new Error('slipnote: this note already has a reply — the back is full');
+    note.reply = {
+      content,
+      repliedAt: new Date().toISOString(),
+      acknowledgedAt: null,
+    };
+    await storage.save(notes);
+    return note;
+  }
+
+  // Side-effect-free peek at replies, optionally narrowed to ones the
+  // original writer hasn't seen yet.
+  async function replies({ unacknowledgedOnly = false } = {}) {
+    const notes = await storage.load();
+    const replied = notes.filter((n) => n.reply);
+    return unacknowledgedOnly ? replied.filter((n) => !n.reply.acknowledgedAt) : replied;
+  }
+
+  // The original writer's half of the reply loop: call this from their
+  // own wake-up/init routine to find out which notes got written back
+  // on since last time. Marks replies acknowledged so they don't
+  // resurface.
+  async function pullReplies() {
+    const notes = await storage.load();
+    const newlyReplied = notes.filter((n) => n.reply && !n.reply.acknowledgedAt);
+    if (newlyReplied.length === 0) return [];
+    const now = new Date().toISOString();
+    for (const n of newlyReplied) n.reply.acknowledgedAt = now;
+    await storage.save(notes);
+    return newlyReplied;
+  }
+
+  return {
+    write,
+    list,
+    markRead,
+    pull,
+    receipts,
+    pullReceipts,
+    replyTo,
+    replies,
+    pullReplies,
+  };
 }
 
 module.exports = { createSlipNote };

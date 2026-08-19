@@ -32,4 +32,23 @@ app.get('/slipnotes/receipts', async (req, res) => {
   res.json(readSinceLastCheck);
 });
 
+// The reader side, optional: write on the back of a note, once, after
+// reading it. Wire to a UI action, same as pull.
+app.post('/slipnotes/:id/reply', async (req, res) => {
+  const { content } = req.body;
+  try {
+    const note = await notes.replyTo(req.params.id, content);
+    res.json(note);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// The original writer side, other half: find out a reply showed up.
+// Same deliberate-check-not-poll rule as receipts.
+app.get('/slipnotes/replies', async (req, res) => {
+  const newReplies = await notes.pullReplies();
+  res.json(newReplies);
+});
+
 app.listen(3000, () => console.log('slipnote example listening on :3000'));

@@ -92,3 +92,55 @@ test('unread notes produce no receipts', async () => {
   const receipts = await notes.pullReceipts();
   assert.equal(receipts.length, 0);
 });
+
+test('replyTo writes once, on the back, after the note is read', async () => {
+  const notes = createSlipNote({ storage: tmpStore() });
+  const note = await notes.write('front of the note');
+  await notes.pull();
+
+  const replied = await notes.replyTo(note.id, 'back of the note');
+  assert.equal(replied.reply.content, 'back of the note');
+  assert.ok(replied.reply.repliedAt);
+  assert.equal(replied.reply.acknowledgedAt, null);
+});
+
+test('replyTo refuses a second reply — the back is full', async () => {
+  const notes = createSlipNote({ storage: tmpStore() });
+  const note = await notes.write('front');
+  await notes.pull();
+  await notes.replyTo(note.id, 'first reply');
+
+  await assert.rejects(() => notes.replyTo(note.id, 'second reply'));
+});
+
+test('replyTo refuses to write on an unread note', async () => {
+  const notes = createSlipNote({ storage: tmpStore() });
+  const note = await notes.write('never opened');
+  await assert.rejects(() => notes.replyTo(note.id, 'too soon'));
+});
+
+test('pullReplies reports new replies once, for the original writer', async () => {
+  const notes = createSlipNote({ storage: tmpStore() });
+  const note = await notes.write('front');
+  await notes.pull();
+  await notes.replyTo(note.id, 'back');
+
+  const first = await notes.pullReplies();
+  assert.equal(first.length, 1);
+  assert.equal(first[0].reply.content, 'back');
+
+  const second = await notes.pullReplies();
+  assert.equal(second.length, 0, 'an already-acknowledged reply should not resurface');
+});
+
+test('replies({ unacknowledgedOnly }) is side-effect free', async () => {
+  const notes = createSlipNote({ storage: tmpStore() });
+  const note = await notes.write('front');
+  await notes.pull();
+  await notes.replyTo(note.id, 'back');
+
+  const peek = await notes.replies({ unacknowledgedOnly: true });
+  assert.equal(peek.length, 1);
+  const peekAgain = await notes.replies({ unacknowledgedOnly: true });
+  assert.equal(peekAgain.length, 1, 'replies() must not mark as acknowledged');
+});

@@ -21,7 +21,12 @@ slipnote is the smallest possible implementation of that idea. It's not a queue,
 - `pullReceipts()` — call this from the writer's own wake-up/init routine, the next time it "comes back." Returns notes that were read since the last check (each one still carries its `readAt` timestamp, so the writer knows *when* it was found), and marks them acknowledged so the same receipt doesn't resurface.
 - `receipts({ unacknowledgedOnly })` — the side-effect-free version, for peeking.
 
-Both halves are pull, not push — neither side gets interrupted, both find out on their own schedule. If you wire `pull()` or `pullReceipts()` into a polling loop, a webhook, or a startup hook, you've turned this back into a push channel, which defeats the point. Both are meant to be called from a deliberate "I'm checking now" moment — a UI action for the reader, a wake-up routine for the writer.
+**The optional third half** — writing back, once:
+
+- `replyTo(id, content)` — write on the back of a note. Only works once a note has been read (you're writing on the back of something you were handed), and only once per note — a second call throws. This is deliberately not a thread: a note that's been replied to is full, the same way a physical slip of paper is.
+- `pullReplies()` / `replies({ unacknowledgedOnly })` — the original writer's side of that: find out a reply showed up, and read it, the same pull/peek pattern as receipts.
+
+Every half is pull, not push — nobody gets interrupted, everyone finds out on their own schedule. If you wire any of the `pull*` calls into a polling loop, a webhook, or a startup hook, you've turned this back into a push channel, which defeats the point. Each one is meant to be called from a deliberate "I'm checking now" moment — a UI action for the reader, a wake-up routine for the writer.
 
 ## Install
 
@@ -52,6 +57,12 @@ const readSinceLastTime = await notes.pullReceipts();
 for (const note of readSinceLastTime) {
   console.log(`"${note.content}" was found at ${note.readAt}`);
 }
+
+// the reader can write back, once, on the same note — after reading it
+await notes.replyTo(unread[0].id, 'saw this, thank you');
+
+// and the original writer picks that up the same way
+const newReplies = await notes.pullReplies();
 ```
 
 ## Storage
@@ -83,12 +94,17 @@ Small enough to back with SQLite, Redis, a KV store, or whatever your stack alre
   createdAt: string; // ISO timestamp
   readAt: string | null; // when the reader pulled it
   acknowledgedAt: string | null; // when the writer's pullReceipts() picked up that read
+  reply: {
+    content: string;
+    repliedAt: string;
+    acknowledgedAt: string | null; // when the writer's pullReplies() picked it up
+  } | null;
 }
 ```
 
 ## Example: HTTP adapter
 
-See [`examples/express.js`](examples/express.js) for a minimal wiring of all three moves — `POST /slipnotes` to write, `GET /slipnotes/pull` for the reader to check, `GET /slipnotes/receipts` for the writer to check. Wire the first two to deliberate actions (a UI click, a wake-up routine), never to a poll loop or startup hook.
+See [`examples/express.js`](examples/express.js) for a minimal wiring of the whole loop — write, pull, receipts, reply, and pullReplies. Wire every `pull*` endpoint to a deliberate action (a UI click, a wake-up routine), never to a poll loop or startup hook.
 
 ## Testing
 
