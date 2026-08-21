@@ -1,0 +1,1 @@
+export { FileStorage } from '../index';
