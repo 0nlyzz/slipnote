@@ -1,17 +1,20 @@
 'use strict';
 
-const test = require('node:test');
+const fs = require('fs');
+const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('os');
 const path = require('path');
-const { createSlipNote } = require('../index');
+const { createSlipNote, FileStorage: ExportedFileStorage } = require('../index');
 const { FileStorage } = require('../lib/file-storage');
 
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slipnote-test-'));
+let tempFileNumber = 0;
+
+after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+
 function tmpStore() {
-  const file = path.join(
-    os.tmpdir(),
-    `slipnote-test-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
-  );
+  const file = path.join(tempRoot, `${tempFileNumber++}.json`);
   return new FileStorage(file);
 }
 
@@ -143,4 +146,91 @@ test('replies({ unacknowledgedOnly }) is side-effect free', async () => {
   assert.equal(peek.length, 1);
   const peekAgain = await notes.replies({ unacknowledgedOnly: true });
   assert.equal(peekAgain.length, 1, 'replies() must not mark as acknowledged');
+});
+
+test('concurrent writes through one instance do not lose notes', async () => {
+  const notes = createSlipNote({ storage: tmpStore() });
+  const contents = Array.from({ length: 20 }, (_, index) => `note-${index}`);
+
+  await Promise.all(contents.map((content) => notes.write(content)));
+
+  const stored = await notes.list();
+  assert.deepEqual(stored.map((note) => note.content).sort(), contents.sort());
+});
+
+test('FileStorage serializes writes across instances sharing a path', async () => {
+  const filePath = path.join(tempRoot, `${tempFileNumber++}.json`);
+  const first = createSlipNote({ storage: new FileStorage(filePath) });
+  const second = createSlipNote({ storage: new FileStorage(filePath) });
+
+  await Promise.all([first.write('first'), second.write('second')]);
+
+  const stored = await first.list();
+  assert.deepEqual(stored.map((note) => note.content).sort(), ['first', 'second']);
+});
+
+test('concurrent pulls hand each note out only once', async () => {
+  const notes = createSlipNote({ storage: tmpStore() });
+  await notes.write('one door, one reader');
+
+  const pulls = await Promise.all([notes.pull(), notes.pull()]);
+
+  assert.deepEqual(pulls.map((result) => result.length).sort(), [0, 1]);
+});
+
+test('concurrent replies preserve the one-shot reply rule', async () => {
+  const notes = createSlipNote({ storage: tmpStore() });
+  const note = await notes.write('front');
+  await notes.pull();
+
+  const attempts = await Promise.allSettled([
+    notes.replyTo(note.id, 'reply one'),
+    notes.replyTo(note.id, 'reply two'),
+  ]);
+
+  assert.equal(attempts.filter((attempt) => attempt.status === 'fulfilled').length, 1);
+  assert.equal(attempts.filter((attempt) => attempt.status === 'rejected').length, 1);
+});
+
+test('custom two-method storage is serialized within one instance', async () => {
+  class SnapshotStorage {
+    constructor() {
+      this.notes = [];
+    }
+
+    async load() {
+      await Promise.resolve();
+      return structuredClone(this.notes);
+    }
+
+    async save(notes) {
+      await Promise.resolve();
+      this.notes = structuredClone(notes);
+    }
+  }
+
+  const notes = createSlipNote({ storage: new SnapshotStorage() });
+  await Promise.all([notes.write('a'), notes.write('b')]);
+
+  assert.equal((await notes.list()).length, 2);
+});
+
+test('filePath is a shortcut for the exported FileStorage backend', async () => {
+  const filePath = path.join(tempRoot, `${tempFileNumber++}.json`);
+  const notes = createSlipNote({ filePath });
+  await notes.write('placed explicitly');
+
+  assert.equal(ExportedFileStorage, FileStorage);
+  assert.equal((await new FileStorage(filePath).load())[0].content, 'placed explicitly');
+  assert.throws(
+    () => createSlipNote({ storage: new FileStorage(filePath), filePath }),
+    /either storage or filePath/
+  );
+});
+
+test('invalid custom storage fails with an actionable error', () => {
+  assert.throws(
+    () => createSlipNote({ storage: {} }),
+    /storage must implement async load\(\) and save\(notes\)/
+  );
 });

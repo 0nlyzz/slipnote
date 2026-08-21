@@ -14,6 +14,7 @@ slipnote is the smallest possible implementation of that idea. It's not a queue,
 
 - `write(content)` — leave a note. No urgency, no delivery guarantee.
 - `pull()` — call this **only** when the reader actively opens the door (a UI panel, a CLI command, whatever "checking for notes" means in your app). Returns unread notes and marks them read.
+- `markRead(id)` — the single-note version of `pull()`, useful when notes are opened individually.
 - `list({ unreadOnly })` — a side-effect-free peek, for admin views or debugging.
 
 **The writer's half** — finding out it was found:
@@ -26,18 +27,22 @@ slipnote is the smallest possible implementation of that idea. It's not a queue,
 - `replyTo(id, content)` — write on the back of a note. Only works once a note has been read (you're writing on the back of something you were handed), and only once per note — a second call throws. This is deliberately not a thread: a note that's been replied to is full, the same way a physical slip of paper is.
 - `pullReplies()` / `replies({ unacknowledgedOnly })` — the original writer's side of that: find out a reply showed up, and read it, the same pull/peek pattern as receipts.
 
-Every half is pull, not push — nobody gets interrupted, everyone finds out on their own schedule. If you wire any of the `pull*` calls into a polling loop, a webhook, or a startup hook, you've turned this back into a push channel, which defeats the point. Each one is meant to be called from a deliberate "I'm checking now" moment — a UI action for the reader, a wake-up routine for the writer.
+Every half is pull, not push — nobody gets interrupted, everyone finds out on their own schedule. Wire `pull()` to a deliberate reader action, such as opening a panel. The writer may call `pullReceipts()` and `pullReplies()` during its own deliberate wake-up or reflection routine. Don't put any of them in a polling loop or turn their result into a notification; that recreates the interruption this primitive is meant to avoid.
 
 ## Install
 
 ```bash
-npm install slipnote
+npm install github:0nlyzz/slipnote
 ```
 
-(Not yet published to npm — clone the repo and `require('./index')` for now.)
+slipnote is not published to npm yet. Installing directly from GitHub still lets you use `require('slipnote')` as shown below. Once the first npm release is available, installation will simply be `npm install slipnote`.
+
+To work on the repository itself:
 
 ```bash
 git clone https://github.com/0nlyzz/slipnote.git
+cd slipnote
+npm test
 ```
 
 ## Usage
@@ -67,7 +72,20 @@ const newReplies = await notes.pullReplies();
 
 ## Storage
 
-Defaults to a single local JSON file (`.slipnotes.json` in `process.cwd()`), zero dependencies. Swap in your own backend by implementing a two-method interface:
+Defaults to a single local JSON file (`.slipnotes.json` in `process.cwd()`), zero dependencies. Pass a path when you want the file somewhere explicit:
+
+```js
+const notes = createSlipNote({ filePath: './data/slipnotes.json' });
+```
+
+You can also import the default backend directly:
+
+```js
+const { createSlipNote, FileStorage } = require('slipnote');
+const notes = createSlipNote({ storage: new FileStorage('./data/slipnotes.json') });
+```
+
+Swap in your own backend by implementing a two-method interface:
 
 ```js
 class MyStorage {
@@ -82,7 +100,17 @@ class MyStorage {
 createSlipNote({ storage: new MyStorage() });
 ```
 
-Small enough to back with SQLite, Redis, a KV store, or whatever your stack already has. It's a whole-array load/save interface — built for the scale this is meant for (a personal note channel between two parties), not a high-volume message queue.
+Calls that change state are serialized within one slipnote instance, so the two-method interface remains safe for concurrent calls through that instance. If several slipnote instances share a custom backend, it can additionally implement `update(mutator)` as an atomic transaction.
+
+The built-in `FileStorage` serializes access across instances that use the same path in one Node.js process and writes via an atomic file replacement. It does **not** coordinate multiple processes or machines. Use a transactional SQLite, Redis, KV, or database adapter for that. The whole-array interface is built for a personal note channel between two parties, not a high-volume message queue.
+
+## TypeScript
+
+Type declarations are included. Both the note shape and storage interface can be imported from the package:
+
+```ts
+import { createSlipNote, type Note, type SlipNoteStorage } from 'slipnote';
+```
 
 ## Note shape
 
@@ -104,7 +132,7 @@ Small enough to back with SQLite, Redis, a KV store, or whatever your stack alre
 
 ## Example: HTTP adapter
 
-See [`examples/express.js`](examples/express.js) for a minimal wiring of the whole loop — write, pull, receipts, reply, and pullReplies. Wire every `pull*` endpoint to a deliberate action (a UI click, a wake-up routine), never to a poll loop or startup hook.
+See [`examples/express.js`](examples/express.js) for a minimal wiring of the whole loop — write, pull, receipts, reply, and pullReplies. It is an adapter sketch, not a production server: add authentication before exposing note contents over a network.
 
 ## Testing
 
@@ -114,7 +142,7 @@ npm test
 
 ## Origin
 
-This pattern came out of a companion-AI project: an assistant wanted a way to leave a thought for the person it talks with, without it landing as a chat interruption — a note slipped under the door, found next time she opened it. This is the general-purpose version of that pattern, stripped down to the two calls that make it work. Idea and original design by Keyan (克衍).
+This pattern came out of a companion-AI project: an assistant wanted a way to leave a thought for the person it talks with, without it landing as a chat interruption — a note slipped under the door, found next time she opened it. This is the general-purpose version of that pattern, stripped down to the small set of calls that make it work. Idea and original design by Keyan (克衍).
 
 ## A note from us
 

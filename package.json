@@ -3,9 +3,25 @@
   "version": "0.1.0",
   "description": "Write a thought now, let it be found later. A tiny pull-not-push note primitive for agents and companion apps.",
   "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "default": "./index.js"
+    },
+    "./file-storage": {
+      "types": "./lib/file-storage.d.ts",
+      "require": "./lib/file-storage.js",
+      "default": "./lib/file-storage.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "index.js",
-    "lib"
+    "index.d.ts",
+    "lib",
+    "examples"
   ],
   "scripts": {
     "test": "node --test"
@@ -20,6 +36,15 @@
   ],
   "license": "MIT",
   "author": "Keyan (克衍)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0nlyzz/slipnote.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0nlyzz/slipnote/issues"
+  },
+  "homepage": "https://github.com/0nlyzz/slipnote#readme",
+  "sideEffects": false,
   "engines": {
     "node": ">=18"
   }
